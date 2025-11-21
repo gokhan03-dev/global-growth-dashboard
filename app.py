@@ -1,96 +1,106 @@
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
 
 # SAYFA AYARLARI
 st.set_page_config(layout="wide", page_title="Global Growth Engine")
 st.title("🌍 Global Investments - Content Command Center")
 st.markdown("---")
 
-# 1. GOOGLE SHEETS BAĞLANTISI
-conn = st.connection("gsheets", type=GSheetsConnection)
+# =========================================================
+# 1. DOĞRUDAN BAĞLANTI (Kütüphanesiz / Secrets Gerektirmez)
+# =========================================================
 
-# 2. VERİLERİ ÇEKME (DEBUG MODU)
-try:
-    # DİKKAT: worksheet ismi Türkçe Excel'de "Sayfa1", İngilizce'de "Sheet1" olur.
-    # usecols listesini kaldırdık, belki sütun isimlerin farklıdır diye hepsini çeksin.
-    df = conn.read(worksheet="Sheet1", ttl=0) 
-    
-    st.success("✅ Google Sheets bağlantısı başarılı!") # Bağlanırsa bunu göreceksin
-    st.write("Çekilen Sütunlar:", df.columns.tolist()) # Sütun isimlerini kontrol et
-    
-    df = df.dropna(how="all")
-    
-except Exception as e:
-    st.error(f"⚠️ KRİTİK HATA DETAYI: {str(e)}") # Gerçek hatayı buraya yazacak
-    st.code(f"Hata Türü: {type(e).__name__}")
+# Senin Sheet ID'n (Linkten aldım)
+SHEET_ID = "1tFyLWh3ODIQH2RI64xIuhfws5jn07iHO6LJdaDY3LUo"
+# GID genellikle ilk sayfa için 0'dır. Eğer başka sekme ise URL'deki gid=... kısmına bak.
+GID = "0" 
+
+# Google'ın özel CSV Export URL formatı
+csv_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
+
+@st.cache_data(ttl=5) # 5 saniyede bir yeniler
+def load_data():
+    try:
+        # Pandas doğrudan URL'den okur
+        data = pd.read_csv(csv_url)
+        # Sütun isimlerindeki boşlukları temizle (Garanti olsun)
+        data.columns = data.columns.str.strip()
+        return data
+    except Exception as e:
+        st.error(f"Veri okunamadı. Hata: {e}")
+        return pd.DataFrame()
+
+df = load_data()
+
+# =========================================================
+# 2. VERİ KONTROLÜ
+# =========================================================
+
+if df.empty:
+    st.warning("⚠️ Veritabanı boş veya okunamadı.")
+    st.info("Lütfen Google Sheet dosyasının 'Herkese Açık' (Viewer) olduğundan emin olun.")
     st.stop()
 
-# 3. SIDEBAR (FİLTRELER)
+# =========================================================
+# 3. DASHBOARD ARAYÜZÜ
+# =========================================================
+
+# SIDEBAR (FİLTRELER)
 with st.sidebar:
     st.header("Filtreler")
     
-    # Market Filtresi
+    # Market Filtresi (Eğer Market sütunu varsa)
     if 'Market' in df.columns:
-        unique_markets = df['Market'].unique().tolist()
+        # NaN (Boş) değerleri temizleyip listele
+        unique_markets = df['Market'].dropna().unique().tolist()
         selected_market = st.selectbox("Pazar Seç", ["Tümü"] + unique_markets)
     else:
         selected_market = "Tümü"
 
-    # Persona Filtresi
-    if 'Persona' in df.columns:
-        unique_personas = df['Persona'].unique().tolist()
-        selected_persona = st.selectbox("Persona Seç", ["Tümü"] + unique_personas)
-    else:
-        selected_persona = "Tümü"
-        
     if st.button("🔄 Yenile"):
         st.cache_data.clear()
         st.rerun()
 
-# 4. VERİ FİLTRELEME
+# FİLTRELEME MANTIĞI
 filtered_df = df.copy()
 if selected_market != "Tümü":
     filtered_df = filtered_df[filtered_df['Market'] == selected_market]
-if selected_persona != "Tümü":
-    filtered_df = filtered_df[filtered_df['Persona'] == selected_persona]
 
-# En yeni içerik en üstte görünsün (Ters sıralama)
+# En yeni en üstte (Ters sıralama)
 filtered_df = filtered_df.iloc[::-1]
 
-# 5. DASHBOARD KARTLARI
+# KARTLARI GÖSTER
 for index, row in filtered_df.iterrows():
     with st.container():
         c1, c2 = st.columns([2, 1])
         
-        # SOL KOLON: METİN İÇERİKLERİ
+        # SOL KOLON
         with c1:
-            title = row.get('Title') if pd.notna(row.get('Title')) else "Başlıksız İçerik"
+            # Sütun isimleri Sheet'tekiyle birebir aynı olmalı (Büyük/Küçük harf duyarlı)
+            title = row['Title'] if 'Title' in row and pd.notna(row['Title']) else "Başlıksız"
             st.subheader(f"📄 {title}")
             
-            meta_info = f"**Tarih:** {row.get('Date')} | **Pazar:** {row.get('Market')} | **Persona:** {row.get('Persona')}"
-            st.caption(meta_info)
+            # Meta bilgi (Sütun yoksa hata vermesin diye .get kullanıyoruz)
+            market_info = row.get('Market', '-')
+            persona_info = row.get('Persona', '-')
+            date_info = row.get('Date', '-')
             
-            with st.expander("📝 Blog Yazısını Oku"):
+            st.caption(f"**Tarih:** {date_info} | **Pazar:** {market_info} | **Persona:** {persona_info}")
+            
+            with st.expander("📝 Blog İçeriği"):
                 st.markdown(row.get('Blog_Content', 'İçerik Yok'))
                 
-            with st.expander("📢 Sosyal Medya Metinleri"):
+            with st.expander("📢 Sosyal Medya"):
                 st.text(row.get('Social_Caption', 'Caption Yok'))
 
-        # SAĞ KOLON: GÖRSEL VE ONAY
+        # SAĞ KOLON
         with c2:
             img_url = row.get('Image_URL')
             if pd.notna(img_url) and str(img_url).startswith('http'):
-                st.image(img_url, caption="AI Generated Image")
+                st.image(str(img_url), caption="AI Görsel")
             else:
-                st.info("Görsel Yok / Link Bozuk")
+                st.info("Görsel Yok")
             
-            # Onay Butonları (Görsel Amaçlı)
-            b1, b2 = st.columns(2)
-            with b1:
-                st.button("✅ Yayınla", key=f"pub_{index}")
-            with b2:
-                st.button("❌ Sil", key=f"del_{index}")
+            st.button("✅ Yayınla", key=f"btn_{index}")
         
         st.divider()
-
