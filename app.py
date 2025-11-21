@@ -8,21 +8,22 @@ st.title("🌍 Global Investments - Content Command Center")
 st.markdown("---")
 
 # 1. GOOGLE SHEETS BAĞLANTISI
-# Bağlantı nesnesini oluşturuyoruz
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. VERİLERİ ÇEKME (Cache ile hızlandırılmış)
-# ttl=60: Her 60 saniyede bir veriyi tazeler
+# 2. VERİLERİ ÇEKME (DEBUG MODU)
 try:
-    df = conn.read(worksheet="Sheet1", ttl=5) # Sheet1 sayfa adın olsun
-    # Boş satırları temizle
+    # DİKKAT: worksheet ismi Türkçe Excel'de "Sayfa1", İngilizce'de "Sheet1" olur.
+    # usecols listesini kaldırdık, belki sütun isimlerin farklıdır diye hepsini çeksin.
+    df = conn.read(worksheet="Sheet1", ttl=0) 
+    
+    st.success("✅ Google Sheets bağlantısı başarılı!") # Bağlanırsa bunu göreceksin
+    st.write("Çekilen Sütunlar:", df.columns.tolist()) # Sütun isimlerini kontrol et
+    
     df = df.dropna(how="all")
+    
 except Exception as e:
-    st.error("Google Sheets'e bağlanılamadı. Secrets ayarlarını kontrol et.")
-    st.stop()
-
-if df.empty:
-    st.warning("Veritabanı boş veya okunamadı. n8n akışını kontrol et.")
+    st.error(f"⚠️ KRİTİK HATA DETAYI: {str(e)}") # Gerçek hatayı buraya yazacak
+    st.code(f"Hata Türü: {type(e).__name__}")
     st.stop()
 
 # 3. SIDEBAR (FİLTRELER)
@@ -92,3 +93,4 @@ for index, row in filtered_df.iterrows():
                 st.button("❌ Sil", key=f"del_{index}")
         
         st.divider()
+
